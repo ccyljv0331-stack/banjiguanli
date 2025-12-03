@@ -1,0 +1,1892 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <title>班级考勤管理系统（优化版）</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <style>
+        .status-btn.active { @apply bg-blue-500 text-white; }
+        .stat-card { @apply bg-white rounded-lg shadow p-3 flex flex-col items-center justify-center; }
+        .stat-number { @apply text-xl font-bold mb-1; }
+        .tab-active { @apply border-b-2 border-blue-500 text-blue-500 font-medium; }
+        .schedule-item { @apply border rounded-md p-2 mb-2; }
+        .history-item { @apply border rounded-md p-2 mb-2 cursor-pointer hover:bg-gray-50; }
+        .student-item { @apply flex justify-between items-center p-2 border-b last:border-0; }
+        .status-options.hidden-options .status-btn:not(.active) { @apply hidden; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-3">
+    <div class="max-w-4xl mx-auto">
+        <!-- 头部 -->
+        <header class="text-center mb-4">
+            <h1 class="text-xl md:text-2xl font-bold text-gray-800">班级考勤管理系统</h1>
+            <p class="text-gray-500 text-xs mt-1">多班级管理 · 历史记录查询 · 智能课表</p>
+        </header>
+
+        <!-- 主导航选项卡 -->
+        <div class="bg-white rounded-lg shadow mb-4 overflow-hidden">
+            <div class="flex border-b flex-wrap">
+                <button id="tab-home" class="tab-btn tab-active py-3 px-4 text-sm" onclick="switchMainTab('home')">首页</button>
+                <button id="tab-attendance" class="tab-btn py-3 px-4 text-sm" onclick="switchMainTab('attendance')">考勤记录</button>
+                <button id="tab-history" class="tab-btn py-3 px-4 text-sm" onclick="switchMainTab('history')">历史查询</button>
+                <button id="tab-class" class="tab-btn py-3 px-4 text-sm" onclick="switchMainTab('class')">班级管理</button>
+                <button id="tab-schedule" class="tab-btn py-3 px-4 text-sm" onclick="switchMainTab('schedule')">课表安排</button>
+            </div>
+
+            <!-- 首页内容 -->
+            <div id="content-home" class="main-content p-3">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                    <div class="bg-gray-50 p-3 rounded-lg">
+                        <h3 class="text-sm font-semibold mb-2 flex items-center">
+                            <i class="fa fa-bar-chart text-blue-500 mr-1"></i> 班级考勤概览
+                        </h3>
+                        <div id="classOverview" class="text-sm">
+                            <p class="text-gray-500 text-center py-4">请选择班级查看概览</p>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 p-3 rounded-lg">
+                        <h3 class="text-sm font-semibold mb-2 flex items-center">
+                            <i class="fa fa-calendar text-green-500 mr-1"></i> 今日课表
+                        </h3>
+                        <div id="todaySchedule" class="text-sm">
+                            <p class="text-gray-500 text-center py-4">请先设置课表</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-gray-50 p-3 rounded-lg">
+                    <h3 class="text-sm font-semibold mb-2 flex items-center">
+                        <i class="fa fa-history text-purple-500 mr-1"></i> 最近考勤记录
+                    </h3>
+                    <div id="recentAttendance" class="text-sm">
+                        <p class="text-gray-500 text-center py-4">暂无考勤记录</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 考勤记录Tab -->
+            <div id="content-attendance" class="main-content p-3 hidden">
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">选择班级</label>
+                        <select id="selectClass" class="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm" onchange="onClassSelected()">
+                            <option value="">-- 请先添加班级 --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">考勤日期</label>
+                        <input type="date" id="attendanceDate" class="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm" onchange="renderAttendanceTable()">
+                    </div>
+                </div>
+
+                <!-- 课程选择（改为手动输入） -->
+                <div class="mb-3">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">当前课程</label>
+                    <input type="text" id="inputCourse" placeholder="请输入课程名称" class="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm" oninput="renderAttendanceTable()">
+                    <p class="text-[10px] text-gray-500 mt-1">请手动输入当前课程名称</p>
+                </div>
+
+                <!-- 考勤快捷操作 -->
+                <div class="bg-gray-50 p-2 rounded-md mb-3">
+                    <p class="text-xs font-medium text-gray-600 mb-1">快捷设置（当前课程）</p>
+                    <div class="flex gap-1 flex-wrap">
+                        <button id="setAllPresent" class="px-2 py-1 text-xs rounded bg-green-100 text-green-700 hover:bg-green-200" onclick="setAllStatus('出勤')">全部出勤</button>
+                        <button id="clearAllStatus" class="px-2 py-1 text-xs rounded bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="clearAllStatus()">清空状态</button>
+                    </div>
+                </div>
+
+                <!-- 花名册考勤表 -->
+                <div id="attendanceTableWrap" class="overflow-x-auto mb-3 hidden">
+                    <table class="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead>
+                            <tr class="bg-gray-50">
+                                <th class="px-2 py-1.5 text-left text-xs font-medium text-gray-500 w-16">序号</th>
+                                <th class="px-2 py-1.5 text-left text-xs font-medium text-gray-500">姓名</th>
+                                <th class="px-2 py-1.5 text-left text-xs font-medium text-gray-500">出勤状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendanceTableBody" class="bg-white divide-y divide-gray-200">
+                            <!-- 导入花名册后自动填充 -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 数据统计 -->
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
+                    <div class="stat-card">
+                        <span class="text-xs text-gray-500">应到</span>
+                        <span id="stat-total" class="stat-number text-gray-800">0</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="text-xs text-gray-500">实到</span>
+                        <span id="stat-present" class="stat-number text-green-600">0</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="text-xs text-gray-500">请假</span>
+                        <span id="stat-leave" class="stat-number text-blue-600">0</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="text-xs text-gray-500">旷课</span>
+                        <span id="stat-absent" class="stat-number text-red-600">0</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="text-xs text-gray-500">休学/退学</span>
+                        <span id="stat-suspend" class="stat-number text-purple-600">0</span>
+                    </div>
+                </div>
+
+                <!-- 操作按钮 -->
+                <div class="flex gap-2 justify-center">
+                    <button id="saveAttendance" class="bg-blue-500 text-white px-3 py-1.5 rounded-md text-sm hover:bg-blue-600" onclick="saveAttendance()">保存考勤</button>
+                    <button id="generatePreview" class="bg-indigo-500 text-white px-3 py-1.5 rounded-md text-sm hover:bg-indigo-600" onclick="generatePreview()">生成预览图</button>
+                    <button id="shareWechat" class="bg-green-500 text-white px-3 py-1.5 rounded-md text-sm hover:bg-green-600" onclick="shareWechat()">分享微信</button>
+                </div>
+            </div>
+
+            <!-- 历史查询Tab -->
+            <div id="content-history" class="main-content p-3 hidden">
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">选择班级</label>
+                        <select id="historyClassSelect" class="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm">
+                            <option value="">-- 请先添加班级 --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">查询类型</label>
+                        <select id="historyTypeSelect" class="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm">
+                            <option value="week">按周查询</option>
+                            <option value="month">按月查询</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">选择日期</label>
+                    <input type="date" id="historyDate" class="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm">
+                </div>
+
+                <div class="mb-3">
+                    <div class="flex gap-2 mb-2">
+                        <button id="viewClassHistory" class="flex-1 bg-blue-500 text-white px-2 py-1.5 rounded-md text-sm hover:bg-blue-600">班级考勤统计</button>
+                        <button id="viewStudentHistory" class="flex-1 bg-green-500 text-white px-2 py-1.5 rounded-md text-sm hover:bg-green-600">个人出勤详情</button>
+                    </div>
+                </div>
+
+                <!-- 历史记录内容区 -->
+                <div id="historyContent" class="bg-gray-50 p-3 rounded-md min-h-[300px]">
+                    <p class="text-xs text-gray-500 text-center py-8">请选择班级和日期查询历史记录</p>
+                </div>
+            </div>
+
+            <!-- 班级管理Tab -->
+            <div id="content-class" class="main-content p-3 hidden">
+                <div class="bg-white border border-gray-200 rounded-md p-3 mb-3">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-2">添加新班级</h3>
+                    <div class="grid grid-cols-1 gap-3">
+                        <div>
+                            <label class="block text-xs font-medium text-gray-600 mb-1">班级名称</label>
+                            <input type="text" id="newClassName" placeholder="如：23级计算机1班" class="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-600 mb-1">添加课程（用逗号分隔）</label>
+                            <input type="text" id="newClassCourses" placeholder="如：高等数学,Python,英语" class="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-600 mb-1">导入班级花名册（Excel）</label>
+                            <div class="flex items-center gap-2">
+                                <input type="file" id="excelFile" accept=".xlsx,.xls" class="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm file:mr-2 file:py-1 file:px-2 file:border-0 file:rounded file:bg-gray-100 file:text-sm">
+                                <button id="importExcel" class="bg-blue-500 text-white px-2 py-1.5 rounded-md text-xs hover:bg-blue-600">导入</button>
+                            </div>
+                            <p class="text-[10px] text-gray-400 mt-1">Excel要求：第一列是"姓名"，无需表头，直接填学生姓名</p>
+                        </div>
+                        <button id="saveClass" class="bg-green-500 text-white px-2 py-1.5 rounded-md text-sm hover:bg-green-600">保存班级</button>
+                    </div>
+                </div>
+
+                <!-- 已添加班级列表 -->
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-700 mb-2">已添加班级</h3>
+                    <div id="classList" class="space-y-2">
+                        <!-- 班级列表将动态生成 -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 课表安排Tab -->
+            <div id="content-schedule" class="main-content p-3 hidden">
+                <div class="mb-3">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">选择班级</label>
+                    <select id="scheduleClassSelect" class="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm">
+                        <option value="">-- 请先添加班级 --</option>
+                    </select>
+                </div>
+
+                <div class="bg-gray-50 p-3 rounded-md mb-3">
+                    <h3 class="text-sm font-semibold mb-2">课程时间设置</h3>
+                    <div class="text-xs text-gray-600 mb-2">
+                        <p>一二节：8：40~10：10</p>
+                        <p>三四节：10：20~11：50</p>
+                        <p>下午：14：20~15：50</p>
+                        <p>晚自习：19：00~20：30</p>
+                    </div>
+                </div>
+
+                <!-- 周课表编辑区 -->
+                <div id="scheduleEditor" class="mb-3 hidden">
+                    <!-- 课表内容将通过JavaScript动态生成 -->
+                </div>
+
+                <div class="text-center">
+                    <button id="saveSchedule" class="bg-green-500 text-white px-3 py-1.5 rounded-md text-sm hover:bg-green-600 hidden">保存课表</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 预览图区域 -->
+        <div id="previewArea" class="hidden bg-white rounded-lg shadow p-3 mb-4">
+            <h2 class="text-sm font-semibold text-gray-700 mb-2 text-center">考勤预览图</h2>
+            <div id="previewContent" class="border border-gray-200 p-2 bg-gray-50">
+                <!-- 预览内容自动生成 -->
+            </div>
+            <div class="mt-3 text-center">
+                <a id="downloadPreview" class="inline-block bg-blue-500 text-white px-3 py-1.5 rounded-md text-sm hover:bg-blue-600" download="班级考勤.png">下载图片</a>
+            </div>
+        </div>
+
+        <!-- 学生编辑弹窗 -->
+        <div id="studentModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10 hidden">
+            <div class="bg-white rounded-lg p-4 w-full max-w-md">
+                <h3 class="text-sm font-semibold mb-3">编辑学生信息</h3>
+                <div class="mb-3">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">姓名</label>
+                    <input type="text" id="studentName" class="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm">
+                </div>
+                <div class="mb-3">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">状态</label>
+                    <select id="studentStatus" class="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm">
+                        <option value="正常">正常</option>
+                        <option value="休学">休学</option>
+                        <option value="退学">退学</option>
+                    </select>
+                </div>
+                <div class="flex gap-2 justify-end">
+                    <button id="cancelStudentEdit" class="px-3 py-1.5 border border-gray-300 rounded-md text-sm hover:bg-gray-50">取消</button>
+                    <button id="saveStudentEdit" class="px-3 py-1.5 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600">保存</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 添加学生弹窗 -->
+        <div id="addStudentModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10 hidden">
+            <div class="bg-white rounded-lg p-4 w-full max-w-md">
+                <h3 class="text-sm font-semibold mb-3">添加学生</h3>
+                <div class="mb-3">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">姓名</label>
+                    <input type="text" id="newStudentName" class="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm">
+                </div>
+                <div class="flex gap-2 justify-end">
+                    <button id="cancelAddStudent" class="px-3 py-1.5 border border-gray-300 rounded-md text-sm hover:bg-gray-50">取消</button>
+                    <button id="confirmAddStudent" class="px-3 py-1.5 bg-green-500 text-white rounded-md text-sm hover:bg-green-600">添加</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局数据存储
+        let classData = JSON.parse(localStorage.getItem('classAttendanceData')) || [];
+        let currentClass = '';
+        let currentEditingStudent = null;
+
+        // 初始化日期为今天
+        document.getElementById('attendanceDate').valueAsDate = new Date();
+        document.getElementById('historyDate').valueAsDate = new Date();
+
+        // 页面加载完成后初始化
+        window.addEventListener('DOMContentLoaded', () => {
+            // 初始化班级选择器
+            initClassSelectors();
+            // 初始化首页
+            renderHomePage();
+            // 绑定事件监听器
+            bindEventListeners();
+        });
+
+        // 1. 主选项卡切换
+        function switchMainTab(tabName) {
+            // 隐藏所有内容，重置所有按钮
+            document.querySelectorAll('.main-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('tab-active'));
+            // 显示选中内容，激活选中按钮
+            document.getElementById(`content-${tabName}`).classList.remove('hidden');
+            document.getElementById(`tab-${tabName}`).classList.add('tab-active');
+            
+            // 切换到对应页面时的操作
+            if (tabName === 'class') renderClassList();
+            if (tabName === 'schedule') renderScheduleClassSelect();
+            if (tabName === 'history') renderHistoryClassSelect();
+            if (tabName === 'home') renderHomePage();
+        }
+
+        // 2. 首页功能
+        function renderHomePage() {
+            renderClassOverview();
+            renderTodaySchedule();
+            renderRecentAttendance();
+        }
+
+        function renderClassOverview() {
+            const classOverviewEl = document.getElementById('classOverview');
+            if (classData.length === 0) {
+                classOverviewEl.innerHTML = '<p class="text-gray-500 text-center py-4">暂无班级数据，请先添加班级</p>';
+                return;
+            }
+
+            let overviewHTML = '<div class="grid grid-cols-2 gap-2">';
+            classData.forEach(cls => {
+                const totalStudents = cls.students ? cls.students.length : 0;
+                const suspendedStudents = cls.students ? cls.students.filter(s => s.status === '休学' || s.status === '退学').length : 0;
+                overviewHTML += `
+                    <div class="border rounded p-2 hover:bg-gray-50 cursor-pointer" onclick="switchToClass('${cls.name}')">
+                        <p class="font-medium">${cls.name}</p>
+                        <p class="text-xs text-gray-500">学生总数: ${totalStudents}</p>
+                        <p class="text-xs text-gray-500">休学/退学: ${suspendedStudents}</p>
+                    </div>
+                `;
+            });
+            overviewHTML += '</div>';
+            classOverviewEl.innerHTML = overviewHTML;
+        }
+
+        function renderTodaySchedule() {
+            const todayScheduleEl = document.getElementById('todaySchedule');
+            const today = new Date();
+            const dayOfWeek = today.getDay() || 7; // 转换为1-7表示周一到周日
+            
+            let scheduleHTML = '';
+            let hasSchedule = false;
+            
+            classData.forEach(cls => {
+                if (cls.schedule && cls.schedule[dayOfWeek]) {
+                    hasSchedule = true;
+                    scheduleHTML += `<div class="mb-2">`;
+                    scheduleHTML += `<p class="font-medium text-sm">${cls.name}</p>`;
+                    
+                    cls.schedule[dayOfWeek].forEach((course, index) => {
+                        if (course) {
+                            let timeDesc = '';
+                            switch(index) {
+                                case 0: timeDesc = '一二节 (8:40-10:10)'; break;
+                                case 1: timeDesc = '三四节 (10:20-11:50)'; break;
+                                case 2: timeDesc = '下午 (14:20-15:50)'; break;
+                                case 3: timeDesc = '晚自习 (19:00-20:30)'; break;
+                            }
+                            scheduleHTML += `<p class="text-xs">${timeDesc}: ${course}</p>`;
+                        }
+                    });
+                    
+                    scheduleHTML += `</div>`;
+                }
+            });
+            
+            if (!hasSchedule) {
+                todayScheduleEl.innerHTML = '<p class="text-gray-500 text-center py-4">今日暂无课表安排</p>';
+            } else {
+                todayScheduleEl.innerHTML = scheduleHTML;
+            }
+        }
+
+        function renderRecentAttendance() {
+            const recentAttendanceEl = document.getElementById('recentAttendance');
+            let allRecords = [];
+            
+            // 收集所有考勤记录
+            classData.forEach(cls => {
+                if (cls.attendance) {
+                    cls.attendance.forEach(record => {
+                        allRecords.push({
+                            ...record,
+                            className: cls.name
+                        });
+                    });
+                }
+            });
+            
+            // 按日期排序，取最近5条
+            allRecords.sort((a, b) => new Date(b.date) - new Date(a.date));
+            const recentRecords = allRecords.slice(0, 5);
+            
+            if (recentRecords.length === 0) {
+                recentAttendanceEl.innerHTML = '<p class="text-gray-500 text-center py-4">暂无考勤记录</p>';
+                return;
+            }
+            
+            let recordsHTML = '';
+            recentRecords.forEach(record => {
+                const date = new Date(record.date);
+                const formattedDate = `${date.getFullYear()}-${(date.getMonth()+1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+                
+                const present = record.attendance.filter(a => a.status === '出勤').length;
+                const total = record.attendance.length;
+                
+                recordsHTML += `
+                    <div class="history-item" onclick="viewRecordDetails('${record.className}', '${record.date}', '${record.course}')">
+                        <div class="flex justify-between">
+                            <p class="font-medium">${record.className} - ${record.course}</p>
+                            <p class="text-xs text-gray-500">${formattedDate}</p>
+                        </div>
+                        <p class="text-xs text-gray-600">出勤: ${present}/${total}</p>
+                    </div>
+                `;
+            });
+            
+            recentAttendanceEl.innerHTML = recordsHTML;
+        }
+
+        // 3. 考勤记录功能
+        function onClassSelected() {
+            const className = document.getElementById('selectClass').value;
+            currentClass = className;
+            renderAttendanceTable();
+        }
+
+        function renderAttendanceTable() {
+            const className = document.getElementById('selectClass').value;
+            const date = document.getElementById('attendanceDate').value;
+            const course = document.getElementById('inputCourse').value;
+            
+            if (!className || !date) {
+                document.getElementById('attendanceTableWrap').classList.add('hidden');
+                updateAttendanceStats();
+                return;
+            }
+            
+            const cls = classData.find(c => c.name === className);
+            if (!cls || !cls.students || cls.students.length === 0) {
+                document.getElementById('attendanceTableWrap').classList.add('hidden');
+                updateAttendanceStats();
+                return;
+            }
+            
+            // 显示表格
+            document.getElementById('attendanceTableWrap').classList.remove('hidden');
+            
+            const attendanceTableBody = document.getElementById('attendanceTableBody');
+            attendanceTableBody.innerHTML = '';
+            
+            // 获取已保存的考勤记录
+            let existingRecord = null;
+            if (cls.attendance) {
+                existingRecord = cls.attendance.find(r => r.date === date && r.course === course);
+            }
+            
+            cls.students.forEach((student, index) => {
+                // 如果学生处于休学/退学状态，默认选中且不可修改
+                const isSuspended = student.status === '休学' || student.status === '退学';
+                const defaultStatus = isSuspended ? '休学/退学' : '出勤';
+                
+                // 从已有记录中获取状态
+                let status = defaultStatus;
+                if (existingRecord) {
+                    const studentRecord = existingRecord.attendance.find(a => a.id === student.id);
+                    if (studentRecord) {
+                        status = studentRecord.status;
+                    }
+                }
+                
+                // 创建行
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50';
+                
+                // 序号单元格
+                const indexCell = document.createElement('td');
+                indexCell.className = 'px-2 py-2';
+                indexCell.textContent = index + 1;
+                row.appendChild(indexCell);
+                
+                // 姓名单元格
+                const nameCell = document.createElement('td');
+                nameCell.className = 'px-2 py-2';
+                nameCell.textContent = student.name;
+                row.appendChild(nameCell);
+                
+                // 状态选择单元格
+                const statusCell = document.createElement('td');
+                statusCell.className = 'px-2 py-2';
+                
+                // 状态选项容器
+                const statusOptions = document.createElement('div');
+                statusOptions.className = `status-options flex gap-1 ${status !== '' ? 'hidden-options' : ''}`;
+                
+                // 状态按钮 - 出勤
+                const presentBtn = document.createElement('button');
+                presentBtn.className = `status-btn px-2 py-0.5 text-xs rounded ${status === '出勤' ? 'bg-green-100 text-green-700 active' : 'bg-gray-100 text-gray-700'}`;
+                presentBtn.textContent = '出勤';
+                presentBtn.disabled = isSuspended;
+                presentBtn.onclick = () => setAttendanceStatus(student.id, '出勤', statusOptions);
+                
+                // 状态按钮 - 请假
+                const leaveBtn = document.createElement('button');
+                leaveBtn.className = `status-btn px-2 py-0.5 text-xs rounded ${status === '请假' ? 'bg-blue-100 text-blue-700 active' : 'bg-gray-100 text-gray-700'}`;
+                leaveBtn.textContent = '请假';
+                leaveBtn.disabled = isSuspended;
+                leaveBtn.onclick = () => setAttendanceStatus(student.id, '请假', statusOptions);
+                
+                // 状态按钮 - 旷课
+                const absentBtn = document.createElement('button');
+                absentBtn.className = `status-btn px-2 py-0.5 text-xs rounded ${status === '旷课' ? 'bg-red-100 text-red-700 active' : 'bg-gray-100 text-gray-700'}`;
+                absentBtn.textContent = '旷课';
+                absentBtn.disabled = isSuspended;
+                absentBtn.onclick = () => setAttendanceStatus(student.id, '旷课', statusOptions);
+                
+                // 状态按钮 - 休学/退学
+                const suspendBtn = document.createElement('button');
+                suspendBtn.className = `status-btn px-2 py-0.5 text-xs rounded ${status === '休学/退学' ? 'bg-purple-100 text-purple-700 active' : 'bg-gray-100 text-gray-700'}`;
+                suspendBtn.textContent = '休学/退学';
+                suspendBtn.disabled = isSuspended;
+                suspendBtn.onclick = () => setAttendanceStatus(student.id, '休学/退学', statusOptions);
+                
+                // 添加按钮到容器
+                statusOptions.appendChild(presentBtn);
+                statusOptions.appendChild(leaveBtn);
+                statusOptions.appendChild(absentBtn);
+                statusOptions.appendChild(suspendBtn);
+                
+                // 添加容器到单元格
+                statusCell.appendChild(statusOptions);
+                row.appendChild(statusCell);
+                
+                // 添加行到表格
+                attendanceTableBody.appendChild(row);
+            });
+            
+            // 更新统计数据
+            updateAttendanceStats();
+        }
+
+        // 设置出勤状态并隐藏其他选项
+        function setAttendanceStatus(studentId, status, statusOptions) {
+            // 更新按钮样式
+            const buttons = statusOptions.querySelectorAll('.status-btn');
+            buttons.forEach(btn => {
+                if (btn.textContent === status) {
+                    btn.classList.add('active');
+                    // 设置对应状态的颜色
+                    if (status === '出勤') {
+                        btn.className = 'status-btn px-2 py-0.5 text-xs rounded bg-green-100 text-green-700 active';
+                    } else if (status === '请假') {
+                        btn.className = 'status-btn px-2 py-0.5 text-xs rounded bg-blue-100 text-blue-700 active';
+                    } else if (status === '旷课') {
+                        btn.className = 'status-btn px-2 py-0.5 text-xs rounded bg-red-100 text-red-700 active';
+                    } else if (status === '休学/退学') {
+                        btn.className = 'status-btn px-2 py-0.5 text-xs rounded bg-purple-100 text-purple-700 active';
+                    }
+                } else {
+                    btn.classList.remove('active');
+                    btn.className = 'status-btn px-2 py-0.5 text-xs rounded bg-gray-100 text-gray-700';
+                }
+            });
+            
+            // 添加隐藏其他选项的类
+            statusOptions.classList.add('hidden-options');
+            
+            // 更新统计数据
+            updateAttendanceStats();
+        }
+
+        function setAllStatus(status) {
+            const className = document.getElementById('selectClass').value;
+            if (!className) return;
+            
+            const cls = classData.find(c => c.name === className);
+            if (!cls || !cls.students) return;
+            
+            // 获取所有状态选项容器
+            const statusOptionsList = document.querySelectorAll('.status-options');
+            
+            cls.students.forEach((student, index) => {
+                // 跳过休学/退学的学生
+                if (student.status === '休学' || student.status === '退学') return;
+                
+                // 设置状态
+                if (statusOptionsList[index]) {
+                    setAttendanceStatus(student.id, status, statusOptionsList[index]);
+                }
+            });
+        }
+
+        function clearAllStatus() {
+            const statusOptionsList = document.querySelectorAll('.status-options');
+            const className = document.getElementById('selectClass').value;
+            const cls = classData.find(c => c.name === className);
+            
+            if (!cls || !cls.students) return;
+            
+            statusOptionsList.forEach((options, index) => {
+                const student = cls.students[index];
+                // 跳过休学/退学的学生
+                if (student.status === '休学' || student.status === '退学') return;
+                
+                // 重置按钮样式
+                const buttons = options.querySelectorAll('.status-btn');
+                buttons.forEach(btn => {
+                    btn.classList.remove('active');
+                    btn.className = 'status-btn px-2 py-0.5 text-xs rounded bg-gray-100 text-gray-700';
+                });
+                
+                // 移除隐藏类
+                options.classList.remove('hidden-options');
+            });
+            
+            // 更新统计
+            updateAttendanceStats();
+        }
+
+        function updateAttendanceStats() {
+            const className = document.getElementById('selectClass').value;
+            if (!className) {
+                document.getElementById('stat-total').textContent = '0';
+                document.getElementById('stat-present').textContent = '0';
+                document.getElementById('stat-leave').textContent = '0';
+                document.getElementById('stat-absent').textContent = '0';
+                document.getElementById('stat-suspend').textContent = '0';
+                return;
+            }
+            
+            const cls = classData.find(c => c.name === className);
+            if (!cls || !cls.students) {
+                document.getElementById('stat-total').textContent = '0';
+                document.getElementById('stat-present').textContent = '0';
+                document.getElementById('stat-leave').textContent = '0';
+                document.getElementById('stat-absent').textContent = '0';
+                document.getElementById('stat-suspend').textContent = '0';
+                return;
+            }
+            
+            // 计算休学/退学人数
+            const suspendedCount = cls.students.filter(s => s.status === '休学' || s.status === '退学').length;
+            // 应到人数 = 总人数 - 休学/退学人数
+            const totalCount = cls.students.length - suspendedCount;
+            
+            // 计算各种状态的人数
+            let presentCount = 0;
+            let leaveCount = 0;
+            let absentCount = 0;
+            
+            const statusButtons = document.querySelectorAll('.status-btn.active');
+            statusButtons.forEach(btn => {
+                switch(btn.textContent) {
+                    case '出勤': presentCount++; break;
+                    case '请假': leaveCount++; break;
+                    case '旷课': absentCount++; break;
+                }
+            });
+            
+            // 如果没有设置任何状态，默认全部出勤
+            if (statusButtons.length === 0) {
+                presentCount = totalCount;
+            }
+            
+            // 更新统计显示
+            document.getElementById('stat-total').textContent = totalCount;
+            document.getElementById('stat-present').textContent = presentCount;
+            document.getElementById('stat-leave').textContent = leaveCount;
+            document.getElementById('stat-absent').textContent = absentCount;
+            document.getElementById('stat-suspend').textContent = suspendedCount;
+        }
+
+        function saveAttendance() {
+            const className = document.getElementById('selectClass').value;
+            const date = document.getElementById('attendanceDate').value;
+            const course = document.getElementById('inputCourse').value;
+            
+            if (!className || !date || !course) {
+                alert('请选择班级、日期并输入课程名称');
+                return;
+            }
+            
+            const cls = classData.find(c => c.name === className);
+            if (!cls || !cls.students) {
+                alert('班级数据不存在或没有学生');
+                return;
+            }
+            
+            // 收集考勤数据
+            const attendanceData = [];
+            const rows = document.querySelectorAll('#attendanceTableBody tr');
+            
+            cls.students.forEach((student, index) => {
+                let status = '出勤'; // 默认出勤
+                
+                // 休学/退学状态
+                if (student.status === '休学' || student.status === '退学') {
+                    status = '休学/退学';
+                } else if (rows[index]) {
+                    // 获取选中的状态
+                    const activeBtn = rows[index].querySelector('.status-btn.active');
+                    if (activeBtn) {
+                        status = activeBtn.textContent;
+                    }
+                }
+                
+                attendanceData.push({
+                    id: student.id,
+                    name: student.name,
+                    status: status
+                });
+            });
+            
+            // 创建考勤记录
+            const attendanceRecord = {
+                date: date,
+                course: course,
+                attendance: attendanceData,
+                timestamp: new Date().toISOString()
+            };
+            
+            // 初始化考勤数组（如果不存在）
+            if (!cls.attendance) {
+                cls.attendance = [];
+            }
+            
+            // 检查是否已有该日期和课程的记录
+            const existingIndex = cls.attendance.findIndex(r => r.date === date && r.course === course);
+            
+            if (existingIndex >= 0) {
+                // 更新现有记录
+                cls.attendance[existingIndex] = attendanceRecord;
+            } else {
+                // 添加新记录
+                cls.attendance.push(attendanceRecord);
+            }
+            
+            // 保存到本地存储
+            saveClassData();
+            
+            alert('考勤记录已保存');
+            
+            // 更新首页最近记录
+            if (document.getElementById('tab-home').classList.contains('tab-active')) {
+                renderRecentAttendance();
+            }
+        }
+
+        function generatePreview() {
+            const className = document.getElementById('selectClass').value;
+            const date = document.getElementById('attendanceDate').value;
+            const course = document.getElementById('inputCourse').value;
+            
+            if (!className || !date || !course) {
+                alert('请选择班级、日期并输入课程名称');
+                return;
+            }
+            
+            // 获取统计数据
+            const total = document.getElementById('stat-total').textContent;
+            const present = document.getElementById('stat-present').textContent;
+            const leave = document.getElementById('stat-leave').textContent;
+            const absent = document.getElementById('stat-absent').textContent;
+            
+            // 格式化日期
+            const formattedDate = new Date(date).toLocaleDateString('zh-CN', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                weekday: 'long'
+            });
+            
+            // 生成预览内容
+            let previewHTML = `
+                <div class="text-center mb-2">
+                    <h3 class="text-lg font-bold">${className} 考勤记录</h3>
+                    <p class="text-sm">日期: ${formattedDate}</p>
+                    <p class="text-sm">课程: ${course}</p>
+                </div>
+                <div class="grid grid-cols-4 gap-2 mb-3 text-center text-xs">
+                    <div class="bg-gray-100 p-1 rounded">应到: ${total}</div>
+                    <div class="bg-green-100 p-1 rounded">实到: ${present}</div>
+                    <div class="bg-blue-100 p-1 rounded">请假: ${leave}</div>
+                    <div class="bg-red-100 p-1 rounded">旷课: ${absent}</div>
+                </div>
+                <div class="text-xs">
+                    <p class="font-medium mb-1">考勤明细:</p>
+                    <table class="w-full border-collapse text-left">
+                        <tr class="border-b">
+                            <th class="px-1 py-0.5">序号</th>
+                            <th class="px-1 py-0.5">姓名</th>
+                            <th class="px-1 py-0.5">状态</th>
+                        </tr>
+            `;
+            
+            // 添加学生考勤明细
+            const rows = document.querySelectorAll('#attendanceTableBody tr');
+            rows.forEach((row, index) => {
+                const name = row.querySelector('td:nth-child(2)').textContent;
+                const statusBtn = row.querySelector('.status-btn.active');
+                let status = statusBtn ? statusBtn.textContent : '出勤';
+                
+                let statusClass = '';
+                switch(status) {
+                    case '出勤': statusClass = 'text-green-600'; break;
+                    case '请假': statusClass = 'text-blue-600'; break;
+                    case '旷课': statusClass = 'text-red-600'; break;
+                    case '休学/退学': statusClass = 'text-purple-600'; break;
+                }
+                
+                previewHTML += `
+                    <tr class="border-b">
+                        <td class="px-1 py-0.5">${index + 1}</td>
+                        <td class="px-1 py-0.5">${name}</td>
+                        <td class="px-1 py-0.5 ${statusClass}">${status}</td>
+                    </tr>
+                `;
+            });
+            
+            previewHTML += `
+                    </table>
+                </div>
+                <div class="text-right text-xs mt-3">
+                    <p>考勤时间: ${new Date().toLocaleString()}</p>
+                </div>
+            `;
+            
+            // 显示预览区域
+            document.getElementById('previewContent').innerHTML = previewHTML;
+            document.getElementById('previewArea').classList.remove('hidden');
+            
+            // 滚动到预览区域
+            document.getElementById('previewArea').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function shareWechat() {
+            // 简单实现，实际项目中可能需要调用微信JS-SDK
+            alert('请使用微信扫描预览图进行分享，或直接将预览图发送给微信好友');
+        }
+
+        // 4. 班级管理功能
+        function initClassSelectors() {
+            // 更新所有班级选择器
+            const selectElements = [
+                document.getElementById('selectClass'),
+                document.getElementById('historyClassSelect'),
+                document.getElementById('scheduleClassSelect')
+            ];
+            
+            selectElements.forEach(select => {
+                if (select) {
+                    // 保存当前选中值
+                    const currentValue = select.value;
+                    
+                    // 清空并添加默认选项
+                    select.innerHTML = '<option value="">-- 请选择班级 --</option>';
+                    
+                    // 添加班级选项
+                    classData.forEach(cls => {
+                        const option = document.createElement('option');
+                        option.value = cls.name;
+                        option.textContent = cls.name;
+                        select.appendChild(option);
+                    });
+                    
+                    // 恢复选中值（如果存在）
+                    if (currentValue && classData.some(cls => cls.name === currentValue)) {
+                        select.value = currentValue;
+                    }
+                }
+            });
+        }
+
+        function renderClassList() {
+            const classListEl = document.getElementById('classList');
+            classListEl.innerHTML = '';
+            
+            if (classData.length === 0) {
+                classListEl.innerHTML = '<p class="text-gray-500 text-center py-4">暂无班级，请添加新班级</p>';
+                return;
+            }
+            
+            classData.forEach(cls => {
+                const studentCount = cls.students ? cls.students.length : 0;
+                const attendanceCount = cls.attendance ? cls.attendance.length : 0;
+                
+                const classItem = document.createElement('div');
+                classItem.className = 'bg-white border rounded-md p-3';
+                
+                classItem.innerHTML = `
+                    <div class="flex justify-between items-start mb-2">
+                        <h4 class="font-medium">${cls.name}</h4>
+                        <div class="flex gap-1">
+                            <button class="text-xs text-blue-500 hover:underline" onclick="editClass('${cls.name}')">编辑</button>
+                            <button class="text-xs text-red-500 hover:underline" onclick="deleteClass('${cls.name}')">删除</button>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-600 mb-2">
+                        <p>学生人数: ${studentCount}</p>
+                        <p>考勤记录: ${attendanceCount} 条</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button class="flex-1 text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600" onclick="manageStudents('${cls.name}')">管理学生</button>
+                        <button class="flex-1 text-xs bg-green-500 text-white px-2 py-1 rounded hover:bg-green-600" onclick="switchToAttendance('${cls.name}')">开始考勤</button>
+                    </div>
+                `;
+                
+                classListEl.appendChild(classItem);
+            });
+        }
+
+        function saveNewClass() {
+            const className = document.getElementById('newClassName').value.trim();
+            const coursesInput = document.getElementById('newClassCourses').value.trim();
+            
+            if (!className) {
+                alert('请输入班级名称');
+                return;
+            }
+            
+            // 检查班级是否已存在
+            if (classData.some(cls => cls.name === className)) {
+                alert('该班级名称已存在');
+                return;
+            }
+            
+            // 处理课程列表
+            const courses = coursesInput ? coursesInput.split(',').map(c => c.trim()) : [];
+            
+            // 创建新班级
+            const newClass = {
+                name: className,
+                courses: courses,
+                students: [],
+                attendance: [],
+                schedule: {}
+            };
+            
+            // 添加到班级数据
+            classData.push(newClass);
+            
+            // 保存到本地存储
+            saveClassData();
+            
+            // 重置表单
+            document.getElementById('newClassName').value = '';
+            document.getElementById('newClassCourses').value = '';
+            document.getElementById('excelFile').value = '';
+            
+            // 更新班级列表
+            renderClassList();
+            initClassSelectors();
+            
+            alert('班级创建成功');
+        }
+
+        function importExcel() {
+            const fileInput = document.getElementById('excelFile');
+            const className = document.getElementById('newClassName').value.trim();
+            
+            if (!className) {
+                alert('请先输入班级名称');
+                return;
+            }
+            
+            if (!fileInput.files || fileInput.files.length === 0) {
+                alert('请选择要导入的Excel文件');
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                    
+                    // 处理学生数据
+                    let students = [];
+                    
+                    if (jsonData.length > 0) {
+                        // 尝试从JSON数据中提取姓名
+                        jsonData.forEach((row, index) => {
+                            let name = '';
+                            
+                            // 检查是否有"姓名"属性
+                            if (row['姓名']) {
+                                name = row['姓名'];
+                            } else {
+                                // 尝试获取第一个属性的值
+                                const keys = Object.keys(row);
+                                if (keys.length > 0) {
+                                    name = row[keys[0]];
+                                }
+                            }
+                            
+                            if (name) {
+                                students.push({
+                                    id: generateId(),
+                                    name: String(name).trim(),
+                                    status: '正常'
+                                });
+                            }
+                        });
+                    } else {
+                        // 如果JSON为空，尝试直接读取单元格
+                        const range = XLSX.utils.decode_range(worksheet['!ref']);
+                        for (let R = range.s.r; R <= range.e.r; R++) {
+                            const cellAddress = XLSX.utils.encode_cell({ r: R, c: 0 });
+                            const cell = worksheet[cellAddress];
+                            if (cell && cell.v) {
+                                students.push({
+                                    id: generateId(),
+                                    name: String(cell.v).trim(),
+                                    status: '正常'
+                                });
+                            }
+                        }
+                    }
+                    
+                    if (students.length === 0) {
+                        alert('未从Excel文件中找到学生数据，请检查文件格式');
+                        return;
+                    }
+                    
+                    // 查找或创建班级
+                    let cls = classData.find(c => c.name === className);
+                    if (!cls) {
+                        // 处理课程列表
+                        const coursesInput = document.getElementById('newClassCourses').value.trim();
+                        const courses = coursesInput ? coursesInput.split(',').map(c => c.trim()) : [];
+                        
+                        cls = {
+                            name: className,
+                            courses: courses,
+                            students: [],
+                            attendance: [],
+                            schedule: {}
+                        };
+                        classData.push(cls);
+                    }
+                    
+                    // 添加学生（避免重复）
+                    const existingNames = cls.students.map(s => s.name);
+                    let newCount = 0;
+                    
+                    students.forEach(student => {
+                        if (!existingNames.includes(student.name)) {
+                            cls.students.push(student);
+                            newCount++;
+                        }
+                    });
+                    
+                    // 保存数据
+                    saveClassData();
+                    
+                    // 更新界面
+                    renderClassList();
+                    initClassSelectors();
+                    
+                    alert(`成功导入 ${newCount} 名学生（已忽略重复学生）`);
+                } catch (error) {
+                    console.error('Excel导入错误:', error);
+                    alert('导入失败，请检查文件格式是否正确');
+                }
+            };
+            
+            reader.readAsArrayBuffer(file);
+        }
+
+        function manageStudents(className) {
+            const cls = classData.find(c => c.name === className);
+            if (!cls) return;
+            
+            // 生成学生列表HTML
+            let studentsHTML = `
+                <div class="mb-3 flex justify-between items-center">
+                    <h3 class="text-sm font-semibold">${className} - 学生管理</h3>
+                    <button id="addStudentBtn" class="text-xs bg-green-500 text-white px-2 py-1 rounded hover:bg-green-600">添加学生</button>
+                </div>
+                <div id="studentsList" class="max-h-[300px] overflow-y-auto mb-3">
+            `;
+            
+            if (cls.students && cls.students.length > 0) {
+                cls.students.forEach(student => {
+                    const statusClass = student.status === '正常' ? 'text-green-600' : 'text-purple-600';
+                    studentsHTML += `
+                        <div class="student-item">
+                            <div>
+                                <span>${student.name}</span>
+                                <span class="text-xs ${statusClass} ml-2">${student.status}</span>
+                            </div>
+                            <button class="text-xs text-blue-500 hover:underline" onclick="editStudent('${className}', '${student.id}')">编辑</button>
+                        </div>
+                    `;
+                });
+            } else {
+                studentsHTML += '<p class="text-gray-500 text-center py-4">该班级暂无学生</p>';
+            }
+            
+            studentsHTML += `
+                </div>
+                <div class="flex gap-2">
+                    <button id="exportStudents" class="flex-1 text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600">导出学生名单</button>
+                    <button id="deleteAllStudents" class="flex-1 text-xs bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600">清空学生</button>
+                </div>
+            `;
+            
+            // 显示在班级管理页面
+            document.getElementById('classList').innerHTML = studentsHTML;
+            
+            // 绑定按钮事件
+            document.getElementById('addStudentBtn').addEventListener('click', () => {
+                showAddStudentModal(className);
+            });
+            
+            document.getElementById('exportStudents').addEventListener('click', () => {
+                exportStudents(className);
+            });
+            
+            document.getElementById('deleteAllStudents').addEventListener('click', () => {
+                if (confirm('确定要清空所有学生吗？此操作不可恢复！')) {
+                    deleteAllStudents(className);
+                }
+            });
+        }
+
+        function showAddStudentModal(className) {
+            document.getElementById('newStudentName').value = '';
+            document.getElementById('addStudentModal').classList.remove('hidden');
+            
+            // 保存当前班级名称到按钮上，方便后续使用
+            document.getElementById('confirmAddStudent').setAttribute('data-class', className);
+        }
+
+        function confirmAddStudent() {
+            const className = document.getElementById('confirmAddStudent').getAttribute('data-class');
+            const studentName = document.getElementById('newStudentName').value.trim();
+            
+            if (!studentName) {
+                alert('请输入学生姓名');
+                return;
+            }
+            
+            const cls = classData.find(c => c.name === className);
+            if (!cls) {
+                alert('班级不存在');
+                return;
+            }
+            
+            // 检查是否已存在同名学生
+            if (cls.students.some(s => s.name === studentName)) {
+                alert('该学生已存在');
+                return;
+            }
+            
+            // 添加新学生
+            cls.students.push({
+                id: generateId(),
+                name: studentName,
+                status: '正常'
+            });
+            
+            // 保存数据
+            saveClassData();
+            
+            // 刷新学生列表
+            manageStudents(className);
+            
+            // 关闭弹窗
+            document.getElementById('addStudentModal').classList.add('hidden');
+        }
+
+        function editStudent(className, studentId) {
+            const cls = classData.find(c => c.name === className);
+            if (!cls) return;
+            
+            const student = cls.students.find(s => s.id === studentId);
+            if (!student) return;
+            
+            // 保存当前编辑的学生信息
+            currentEditingStudent = { className, studentId };
+            
+            // 填充表单
+            document.getElementById('studentName').value = student.name;
+            document.getElementById('studentStatus').value = student.status;
+            
+            // 显示弹窗
+            document.getElementById('studentModal').classList.remove('hidden');
+        }
+
+        function saveStudentEdit() {
+            if (!currentEditingStudent) return;
+            
+            const { className, studentId } = currentEditingStudent;
+            const cls = classData.find(c => c.name === className);
+            if (!cls) return;
+            
+            const student = cls.students.find(s => s.id === studentId);
+            if (!student) return;
+            
+            const newName = document.getElementById('studentName').value.trim();
+            const newStatus = document.getElementById('studentStatus').value;
+            
+            if (!newName) {
+                alert('请输入学生姓名');
+                return;
+            }
+            
+            // 检查是否重名（排除当前学生）
+            if (cls.students.some(s => s.name === newName && s.id !== studentId)) {
+                alert('该学生姓名已存在');
+                return;
+            }
+            
+            // 更新学生信息
+            student.name = newName;
+            student.status = newStatus;
+            
+            // 保存数据
+            saveClassData();
+            
+            // 刷新学生列表
+            manageStudents(className);
+            
+            // 关闭弹窗
+            document.getElementById('studentModal').classList.add('hidden');
+            currentEditingStudent = null;
+        }
+
+        function deleteClass(className) {
+            if (!confirm(`确定要删除班级"${className}"吗？所有学生和考勤记录也将被删除！`)) {
+                return;
+            }
+            
+            // 从班级数据中移除
+            classData = classData.filter(cls => cls.name !== className);
+            
+            // 保存数据
+            saveClassData();
+            
+            // 更新界面
+            renderClassList();
+            initClassSelectors();
+        }
+
+        function exportStudents(className) {
+            const cls = classData.find(c => c.name === className);
+            if (!cls || !cls.students || cls.students.length === 0) {
+                alert('该班级没有学生数据可导出');
+                return;
+            }
+            
+            // 准备导出数据
+            const exportData = cls.students.map(student => ({
+                姓名: student.name,
+                状态: student.status
+            }));
+            
+            // 创建工作簿和工作表
+            const worksheet = XLSX.utils.json_to_sheet(exportData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, '学生名单');
+            
+            // 导出文件
+            XLSX.writeFile(workbook, `${className}学生名单.xlsx`);
+        }
+
+        function deleteAllStudents(className) {
+            const cls = classData.find(c => c.name === className);
+            if (!cls) return;
+            
+            // 清空学生列表
+            cls.students = [];
+            
+            // 保存数据
+            saveClassData();
+            
+            // 刷新学生列表
+            manageStudents(className);
+        }
+
+        // 5. 课表安排功能
+        function renderScheduleClassSelect() {
+            const select = document.getElementById('scheduleClassSelect');
+            if (!select) return;
+            
+            // 保存当前选中值
+            const currentValue = select.value;
+            
+            // 清空并添加选项
+            select.innerHTML = '<option value="">-- 请选择班级 --</option>';
+            
+            // 添加班级选项
+            classData.forEach(cls => {
+                const option = document.createElement('option');
+                option.value = cls.name;
+                option.textContent = cls.name;
+                select.appendChild(option);
+            });
+            
+            // 恢复选中值
+            if (currentValue && classData.some(cls => cls.name === currentValue)) {
+                select.value = currentValue;
+                renderScheduleEditor(currentValue);
+            }
+            
+            // 添加变更事件
+            select.onchange = function() {
+                const className = this.value;
+                if (className) {
+                    renderScheduleEditor(className);
+                } else {
+                    document.getElementById('scheduleEditor').classList.add('hidden');
+                    document.getElementById('saveSchedule').classList.add('hidden');
+                }
+            };
+        }
+
+        function renderScheduleEditor(className) {
+            const cls = classData.find(c => c.name === className);
+            if (!cls) return;
+            
+            // 初始化课表数据
+            if (!cls.schedule) {
+                cls.schedule = {};
+            }
+            
+            // 星期名称映射
+            const weekDays = {
+                1: '星期一',
+                2: '星期二',
+                3: '星期三',
+                4: '星期四',
+                5: '星期五',
+                6: '星期六',
+                7: '星期日'
+            };
+            
+            // 时间段名称
+            const timeSlots = [
+                '一二节 (8:40-10:10)',
+                '三四节 (10:20-11:50)',
+                '下午 (14:20-15:50)',
+                '晚自习 (19:00-20:30)'
+            ];
+            
+            // 生成课表编辑HTML
+            let scheduleHTML = `<table class="w-full text-sm">`;
+            
+            // 表头
+            scheduleHTML += `<tr class="bg-gray-50">
+                <th class="px-2 py-2 border text-left">时间段</th>
+            `;
+            
+            // 星期表头
+            for (let i = 1; i <= 7; i++) {
+                scheduleHTML += `<th class="px-2 py-2 border text-left">${weekDays[i]}</th>`;
+            }
+            
+            scheduleHTML += `</tr>`;
+            
+            // 时间段行
+            timeSlots.forEach((slot, slotIndex) => {
+                scheduleHTML += `<tr class="border-b">
+                    <td class="px-2 py-2 border">${slot}</td>
+                `;
+                
+                // 每周的每一天
+                for (let day = 1; day <= 7; day++) {
+                    // 初始化当天数据
+                    if (!cls.schedule[day]) {
+                        cls.schedule[day] = ['', '', '', ''];
+                    }
+                    
+                    // 获取当前课程
+                    const currentCourse = cls.schedule[day][slotIndex] || '';
+                    
+                    // 创建课程选择器
+                    scheduleHTML += `<td class="px-2 py-2 border">
+                        <input type="text" 
+                               class="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                               data-day="${day}" 
+                               data-slot="${slotIndex}"
+                               value="${currentCourse}"
+                               placeholder="请输入课程">
+                    </td>`;
+                }
+                
+                scheduleHTML += `</tr>`;
+            });
+            
+            scheduleHTML += `</table>`;
+            
+            // 更新界面
+            const scheduleEditor = document.getElementById('scheduleEditor');
+            scheduleEditor.innerHTML = scheduleHTML;
+            scheduleEditor.classList.remove('hidden');
+            document.getElementById('saveSchedule').classList.remove('hidden');
+            
+            // 保存当前编辑的班级
+            document.getElementById('saveSchedule').setAttribute('data-class', className);
+        }
+
+        function saveSchedule() {
+            const className = document.getElementById('saveSchedule').getAttribute('data-class');
+            const cls = classData.find(c => c.name === className);
+            if (!cls) return;
+            
+            // 初始化课表数据
+            if (!cls.schedule) {
+                cls.schedule = {};
+            }
+            
+            // 收集表单数据
+            const courseInputs = document.querySelectorAll('#scheduleEditor input');
+            courseInputs.forEach(input => {
+                const day = parseInt(input.getAttribute('data-day'));
+                const slot = parseInt(input.getAttribute('data-slot'));
+                const course = input.value.trim();
+                
+                // 初始化当天数据
+                if (!cls.schedule[day]) {
+                    cls.schedule[day] = ['', '', '', ''];
+                }
+                
+                // 更新课程
+                cls.schedule[day][slot] = course;
+            });
+            
+            // 保存数据
+            saveClassData();
+            
+            alert('课表已保存');
+        }
+
+        // 6. 历史查询功能
+        function renderHistoryClassSelect() {
+            const select = document.getElementById('historyClassSelect');
+            if (!select) return;
+            
+            // 清空并添加选项
+            select.innerHTML = '<option value="">-- 请选择班级 --</option>';
+            
+            // 添加班级选项
+            classData.forEach(cls => {
+                const option = document.createElement('option');
+                option.value = cls.name;
+                option.textContent = cls.name;
+                select.appendChild(option);
+            });
+        }
+
+        function viewClassHistory() {
+            const className = document.getElementById('historyClassSelect').value;
+            const date = document.getElementById('historyDate').value;
+            const type = document.getElementById('historyTypeSelect').value;
+            
+            if (!className || !date) {
+                alert('请选择班级和日期');
+                return;
+            }
+            
+            const cls = classData.find(c => c.name === className);
+            if (!cls || !cls.attendance || cls.attendance.length === 0) {
+                document.getElementById('historyContent').innerHTML = '<p class="text-gray-500 text-center py-8">该班级暂无考勤记录</p>';
+                return;
+            }
+            
+            const targetDate = new Date(date);
+            let recordsToShow = [];
+            
+            if (type === 'week') {
+                // 按周查询 - 获取本周的所有记录
+                const weekStart = new Date(targetDate);
+                weekStart.setDate(targetDate.getDate() - targetDate.getDay() + 1); // 周一
+                weekStart.setHours(0, 0, 0, 0);
+                
+                const weekEnd = new Date(weekStart);
+                weekEnd.setDate(weekStart.getDate() + 6); // 周日
+                weekEnd.setHours(23, 59, 59, 999);
+                
+                recordsToShow = cls.attendance.filter(record => {
+                    const recordDate = new Date(record.date);
+                    return recordDate >= weekStart && recordDate <= weekEnd;
+                });
+                
+                // 格式化日期范围显示
+                const formatDate = d => `${d.getMonth()+1}月${d.getDate()}日`;
+                document.getElementById('historyContent').innerHTML = `<h3 class="text-sm font-semibold mb-3">${className} - ${formatDate(weekStart)}至${formatDate(weekEnd)} 考勤统计</h3>`;
+            } else {
+                // 按月查询 - 获取本月的所有记录
+                const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+                const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
+                monthEnd.setHours(23, 59, 59, 999);
+                
+                recordsToShow = cls.attendance.filter(record => {
+                    const recordDate = new Date(record.date);
+                    return recordDate >= monthStart && recordDate <= monthEnd;
+                });
+                
+                // 格式化月份显示
+                document.getElementById('historyContent').innerHTML = `<h3 class="text-sm font-semibold mb-3">${className} - ${targetDate.getFullYear()}年${targetDate.getMonth()+1}月 考勤统计</h3>`;
+            }
+            
+            if (recordsToShow.length === 0) {
+                document.getElementById('historyContent').innerHTML += '<p class="text-gray-500 text-center py-4">该时间段内暂无考勤记录</p>';
+                return;
+            }
+            
+            // 按日期排序
+            recordsToShow.sort((a, b) => new Date(a.date) - new Date(b.date));
+            
+            // 生成记录列表
+            let recordsHTML = '<div class="space-y-3">';
+            
+            recordsToShow.forEach(record => {
+                const date = new Date(record.date);
+                const formattedDate = `${date.getMonth()+1}月${date.getDate()}日 ${['日', '一', '二', '三', '四', '五', '六'][date.getDay()]}`;
+                
+                const total = record.attendance.length;
+                const present = record.attendance.filter(a => a.status === '出勤').length;
+                const leave = record.attendance.filter(a => a.status === '请假').length;
+                const absent = record.attendance.filter(a => a.status === '旷课').length;
+                const attendanceRate = total > 0 ? Math.round((present / total) * 100) : 0;
+                
+                recordsHTML += `
+                    <div class="history-item">
+                        <div class="flex justify-between items-center mb-1">
+                            <p class="font-medium">${record.course}</p>
+                            <p class="text-xs text-gray-500">${formattedDate}</p>
+                        </div>
+                        <div class="grid grid-cols-4 gap-1 text-xs">
+                            <div>应到: ${total}</div>
+                            <div class="text-green-600">实到: ${present}</div>
+                            <div class="text-blue-600">请假: ${leave}</div>
+                            <div class="text-red-600">旷课: ${absent}</div>
+                        </div>
+                        <div class="mt-1 text-xs">
+                            <div class="w-full bg-gray-200 rounded-full h-1.5">
+                                <div class="bg-green-600 h-1.5 rounded-full" style="width: ${attendanceRate}%"></div>
+                            </div>
+                            <p class="text-right mt-0.5">出勤率: ${attendanceRate}%</p>
+                        </div>
+                        <button class="text-xs text-blue-500 hover:underline mt-1" onclick="viewRecordDetails('${className}', '${record.date}', '${record.course}')">查看详情</button>
+                    </div>
+                `;
+            });
+            
+            recordsHTML += '</div>';
+            document.getElementById('historyContent').innerHTML += recordsHTML;
+        }
+
+        function viewStudentHistory() {
+            const className = document.getElementById('historyClassSelect').value;
+            const date = document.getElementById('historyDate').value;
+            const type = document.getElementById('historyTypeSelect').value;
+            
+            if (!className || !date) {
+                alert('请选择班级和日期');
+                return;
+            }
+            
+            const cls = classData.find(c => c.name === className);
+            if (!cls || !cls.students || cls.students.length === 0) {
+                document.getElementById('historyContent').innerHTML = '<p class="text-gray-500 text-center py-8">该班级暂无学生数据</p>';
+                return;
+            }
+            
+            if (!cls.attendance || cls.attendance.length === 0) {
+                document.getElementById('historyContent').innerHTML = '<p class="text-gray-500 text-center py-8">该班级暂无考勤记录</p>';
+                return;
+            }
+            
+            const targetDate = new Date(date);
+            let recordsToShow = [];
+            
+            if (type === 'week') {
+                // 按周查询
+                const weekStart = new Date(targetDate);
+                weekStart.setDate(targetDate.getDate() - targetDate.getDay() + 1);
+                weekStart.setHours(0, 0, 0, 0);
+                
+                const weekEnd = new Date(weekStart);
+                weekEnd.setDate(weekStart.getDate() + 6);
+                weekEnd.setHours(23, 59, 59, 999);
+                
+                recordsToShow = cls.attendance.filter(record => {
+                    const recordDate = new Date(record.date);
+                    return recordDate >= weekStart && recordDate <= weekEnd;
+                });
+                
+                // 显示日期范围
+                const formatDate = d => `${d.getMonth()+1}月${d.getDate()}日`;
+                document.getElementById('historyContent').innerHTML = `<h3 class="text-sm font-semibold mb-3">${className} - ${formatDate(weekStart)}至${formatDate(weekEnd)} 个人出勤详情</h3>`;
+            } else {
+                // 按月查询
+                const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+                const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
+                monthEnd.setHours(23, 59, 59, 999);
+                
+                recordsToShow = cls.attendance.filter(record => {
+                    const recordDate = new Date(record.date);
+                    return recordDate >= monthStart && recordDate <= monthEnd;
+                });
+                
+                // 显示月份
+                document.getElementById('historyContent').innerHTML = `<h3 class="text-sm font-semibold mb-3">${className} - ${targetDate.getFullYear()}年${targetDate.getMonth()+1}月 个人出勤详情</h3>`;
+            }
+            
+            if (recordsToShow.length === 0) {
+                document.getElementById('historyContent').innerHTML += '<p class="text-gray-500 text-center py-4">该时间段内暂无考勤记录</p>';
+                return;
+            }
+            
+            // 按学生整理考勤记录
+            const studentAttendance = {};
+            cls.students.forEach(student => {
+                studentAttendance[student.id] = {
+                    name: student.name,
+                    total: 0,
+                    present: 0,
+                    leave: 0,
+                    absent: 0,
+                    details: []
+                };
+            });
+            
+            // 统计每个学生的出勤情况
+            recordsToShow.forEach(record => {
+                const date = new Date(record.date);
+                const formattedDate = `${date.getMonth()+1}月${date.getDate()}日`;
+                
+                record.attendance.forEach(item => {
+                    if (studentAttendance[item.id]) {
+                        const stats = studentAttendance[item.id];
+                        stats.total++;
+                        
+                        switch(item.status) {
+                            case '出勤': stats.present++; break;
+                            case '请假': stats.leave++; break;
+                            case '旷课': stats.absent++; break;
+                        }
+                        
+                        stats.details.push({
+                            date: formattedDate,
+                            course: record.course,
+                            status: item.status
+                        });
+                    }
+                });
+            });
+            
+            // 生成学生出勤列表
+            let studentsHTML = '<div class="space-y-3 max-h-[400px] overflow-y-auto">';
+            
+            Object.values(studentAttendance).forEach(student => {
+                if (student.total === 0) return;
+                
+                const attendanceRate = Math.round((student.present / student.total) * 100);
+                
+                studentsHTML += `
+                    <div class="border rounded-md p-2">
+                        <div class="flex justify-between items-center mb-1">
+                            <p class="font-medium">${student.name}</p>
+                            <p class="text-xs">出勤率: ${attendanceRate}%</p>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1 text-xs mb-2">
+                            <div>总课次: ${student.total}</div>
+                            <div class="text-green-600">出勤: ${student.present}</div>
+                            <div class="text-red-600">旷课: ${student.absent}</div>
+                        </div>
+                        <button class="text-xs text-blue-500 hover:underline" onclick="showStudentAttendanceDetails('${student.name}', ${JSON.stringify(student.details)})">查看详情</button>
+                    </div>
+                `;
+            });
+            
+            studentsHTML += '</div>';
+            document.getElementById('historyContent').innerHTML += studentsHTML;
+        }
+
+        function viewRecordDetails(className, date, course) {
+            const cls = classData.find(c => c.name === className);
+            if (!cls || !cls.attendance) return;
+            
+            const record = cls.attendance.find(r => r.date === date && r.course === course);
+            if (!record) return;
+            
+            // 格式化日期
+            const formattedDate = new Date(date).toLocaleDateString('zh-CN', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                weekday: 'long'
+            });
+            
+            // 生成详情HTML
+            let detailsHTML = `
+                <div class="mb-3">
+                    <h3 class="text-sm font-semibold">${className} - ${course}</h3>
+                    <p class="text-xs text-gray-500">${formattedDate}</p>
+                </div>
+                <div class="grid grid-cols-4 gap-2 mb-3 text-center text-xs">
+                    <div class="bg-gray-100 p-1 rounded">应到: ${record.attendance.length}</div>
+                    <div class="bg-green-100 p-1 rounded">实到: ${record.attendance.filter(a => a.status === '出勤').length}</div>
+                    <div class="bg-blue-100 p-1 rounded">请假: ${record.attendance.filter(a => a.status === '请假').length}</div>
+                    <div class="bg-red-100 p-1 rounded">旷课: ${record.attendance.filter(a => a.status === '旷课').length}</div>
+                </div>
+                <div class="overflow-y-auto max-h-[300px] text-xs">
+                    <table class="w-full border-collapse">
+                        <tr class="bg-gray-50">
+                            <th class="px-2 py-1 border text-left">姓名</th>
+                            <th class="px-2 py-1 border text-left">状态</th>
+                        </tr>
+            `;
+            
+            // 添加学生考勤记录
+            record.attendance.forEach(student => {
+                let statusClass = '';
+                switch(student.status) {
+                    case '出勤': statusClass = 'text-green-600'; break;
+                    case '请假': statusClass = 'text-blue-600'; break;
+                    case '旷课': statusClass = 'text-red-600'; break;
+                    case '休学/退学': statusClass = 'text-purple-600'; break;
+                }
+                
+                detailsHTML += `
+                    <tr class="border-b hover:bg-gray-50">
+                        <td class="px-2 py-1 border">${student.name}</td>
+                        <td class="px-2 py-1 border ${statusClass}">${student.status}</td>
+                    </tr>
+                `;
+            });
+            
+            detailsHTML += `
+                    </table>
+                </div>
+                <div class="mt-3 text-center">
+                    <button class="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600" onclick="switchMainTab('history')">返回列表</button>
+                </div>
+            `;
+            
+            // 显示详情
+            document.getElementById('historyContent').innerHTML = detailsHTML;
+        }
+
+        function showStudentAttendanceDetails(studentName, details) {
+            // 生成详情HTML
+            let detailsHTML = `
+                <div class="mb-3">
+                    <h3 class="text-sm font-semibold">${studentName} 的出勤详情</h3>
+                </div>
+                <div class="overflow-y-auto max-h-[300px] text-xs">
+                    <table class="w-full border-collapse">
+                        <tr class="bg-gray-50">
+                            <th class="px-2 py-1 border text-left">日期</th>
+                            <th class="px-2 py-1 border text-left">课程</th>
+                            <th class="px-2 py-1 border text-left">状态</th>
+                        </tr>
+            `;
+            
+            // 添加出勤记录
+            details.forEach(detail => {
+                let statusClass = '';
+                switch(detail.status) {
+                    case '出勤': statusClass = 'text-green-600'; break;
+                    case '请假': statusClass = 'text-blue-600'; break;
+                    case '旷课': statusClass = 'text-red-600'; break;
+                    case '休学/退学': statusClass = 'text-purple-600'; break;
+                }
+                
+                detailsHTML += `
+                    <tr class="border-b hover:bg-gray-50">
+                        <td class="px-2 py-1 border">${detail.date}</td>
+                        <td class="px-2 py-1 border">${detail.course}</td>
+                        <td class="px-2 py-1 border ${statusClass}">${detail.status}</td>
+                    </tr>
+                `;
+            });
+            
+            detailsHTML += `
+                    </table>
+                </div>
+                <div class="mt-3 text-center">
+                    <button class="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600" onclick="viewStudentHistory()">返回列表</button>
+                </div>
+            `;
+            
+            // 显示详情
+            document.getElementById('historyContent').innerHTML = detailsHTML;
+        }
+
+        // 辅助函数
+        function saveClassData() {
+            localStorage.setItem('classAttendanceData', JSON.stringify(classData));
+        }
+
+        function generateId() {
+            return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+        }
+
+        function switchToClass(className) {
+            // 切换到首页并选中班级
+            switchMainTab('home');
+        }
+
+        function switchToAttendance(className) {
+            // 切换到考勤页面并选中班级
+            switchMainTab('attendance');
+            document.getElementById('selectClass').value = className;
+            onClassSelected();
+        }
+
+        // 绑定事件监听器
+        function bindEventListeners() {
+            // 保存班级按钮
+            document.getElementById('saveClass').addEventListener('click', saveNewClass);
+            
+            // 导入Excel按钮
+            document.getElementById('importExcel').addEventListener('click', importExcel);
+            
+            // 取消学生编辑
+            document.getElementById('cancelStudentEdit').addEventListener('click', () => {
+                document.getElementById('studentModal').classList.add('hidden');
+                currentEditingStudent = null;
+            });
+            
+            // 保存学生编辑
+            document.getElementById('saveStudentEdit').addEventListener('click', saveStudentEdit);
+            
+            // 取消添加学生
+            document.getElementById('cancelAddStudent').addEventListener('click', () => {
+                document.getElementById('addStudentModal').classList.add('hidden');
+            });
+            
+            // 确认添加学生
+            document.getElementById('confirmAddStudent').addEventListener('click', confirmAddStudent);
+            
+            // 保存课表
+            document.getElementById('saveSchedule').addEventListener('click', saveSchedule);
+            
+            // 查看班级历史
+            document.getElementById('viewClassHistory').addEventListener('click', viewClassHistory);
+            
+            // 查看学生历史
+            document.getElementById('viewStudentHistory').addEventListener('click', viewStudentHistory);
+            
+            // 下载预览图
+            document.getElementById('downloadPreview').addEventListener('click', function() {
+                html2canvas(document.getElementById('previewContent')).then(canvas => {
+                    const link = document.getElementById('downloadPreview');
+                    link.href = canvas.toDataURL('image/png');
+                });
+            });
+        }
+    </script>
+</body>
+</html>
